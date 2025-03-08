@@ -1,7 +1,8 @@
 {
   description = "基于 ZeroBot 的 OneBot 插件";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # pin nixpkgs to preserve dropped go_1_20
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/33c51330782cb486764eb598d5907b43dc87b4c2";
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.gomod2nix.url = "github:nix-community/gomod2nix";
   inputs.gomod2nix.inputs.nixpkgs.follows = "nixpkgs";
@@ -12,8 +13,10 @@
     nixpkgs,
     flake-utils,
     gomod2nix,
-  }: (
-    flake-utils.lib.eachDefaultSystem
+  }: let
+    allSystems = flake-utils.lib.allSystems;
+  in (
+    flake-utils.lib.eachSystem allSystems
     (system: let
       pkgs = nixpkgs.legacyPackages.${system};
 
@@ -22,11 +25,26 @@
       callPackage = pkgs.darwin.apple_sdk_11_0.callPackage or pkgs.callPackage;
     in {
       # doCheck will fail at write files
-      packages.default =
-        (callPackage ./. {
-          inherit (gomod2nix.legacyPackages.${system}) buildGoApplication;
-        })
-        .overrideAttrs (_: {doCheck = false;});
+      packages = rec {
+
+        ZeroBot-Plugin =
+          (callPackage ./. {
+            inherit (gomod2nix.legacyPackages.${system}) buildGoApplication;
+          })
+          .overrideAttrs (_: {doCheck = false;});
+
+        default = ZeroBot-Plugin;
+
+        docker_builder = pkgs.dockerTools.buildLayeredImage {
+          name = "ZeroBot-Plugin";
+          tag = "latest";
+          contents = [
+            self.packages.${system}.ZeroBot-Plugin
+            pkgs.cacert
+          ];
+        };
+
+      };
       devShells.default = callPackage ./shell.nix {
         inherit (gomod2nix.legacyPackages.${system}) mkGoEnv gomod2nix;
       };
